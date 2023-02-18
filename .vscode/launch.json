@@ -1,0 +1,42 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'photo_sync'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=photo_sync",
+                    "--package=photo_sync"
+                ],
+                "filter": {
+                    "name": "photo_sync",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'photo_sync'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=photo_sync",
+                    "--package=photo_sync"
+                ],
+                "filter": {
+                    "name": "photo_sync",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}
