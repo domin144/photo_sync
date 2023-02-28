@@ -4,6 +4,7 @@ use std::error::Error;
 use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::process::ExitCode;
 
 /// Simple program to update target photo collection to have a folder structure
 /// of the source photo collection.
@@ -92,7 +93,7 @@ fn display_analyzed_directory(analyzed_directory: &AnalyzedDirectory) {
 
 // fn sync(sourceDir: &AnalyzedDirectory, targetDir: &AnalyzedDirectory) -> Result<(), String> {}
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main2() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
     println!(
         "Synchronize photo collection from {} to {}.",
@@ -108,4 +109,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     display_analyzed_directory(&analyzed_target);
 
     Ok(())
+}
+
+fn main() -> ExitCode {
+    let result = main2();
+    match result {
+        Err(e) => {
+            println!("Error: {}", e);
+            ExitCode::FAILURE
+        }
+        Ok(()) => ExitCode::SUCCESS,
+    }
 }
