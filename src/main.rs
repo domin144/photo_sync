@@ -1,5 +1,6 @@
 use clap::Parser;
 use std::collections::BTreeMap;
+use std::error::Error;
 use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -15,10 +16,10 @@ use std::path::{Path, PathBuf};
 #[command(author, version, about, long_about = None)]
 struct Args {
     /// Source collection
-    source_directory: String,
+    source_directory: PathBuf,
 
     /// Target collection.
-    target_directory: String,
+    target_directory: PathBuf,
 
     /// Don't do anything, just list the actions.
     #[arg(short, long)]
@@ -80,12 +81,31 @@ enum Operatrion {
     RemoveEmptyDirectory(PathBuf),
 }
 
+fn display_analyzed_directory(analyzed_directory: &AnalyzedDirectory) {
+    for (key, value) in &analyzed_directory.map {
+        println!("size : {}, name : {}", key.size, key.name.to_string_lossy());
+        for path in value {
+            println!("    path : {}", path.to_string_lossy());
+        }
+    }
+}
+
 // fn sync(sourceDir: &AnalyzedDirectory, targetDir: &AnalyzedDirectory) -> Result<(), String> {}
 
-fn main() {
+fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
     println!(
         "Synchronize photo collection from {} to {}.",
-        args.source_directory, args.target_directory
-    )
+        args.source_directory.to_string_lossy(),
+        args.target_directory.to_string_lossy()
+    );
+    let analyzed_source = analyze_directory(&args.source_directory)?;
+    let analyzed_target = analyze_directory(&args.target_directory)?;
+
+    println!("Analyzed source:");
+    display_analyzed_directory(&analyzed_source);
+    println!("Analyzed target:");
+    display_analyzed_directory(&analyzed_target);
+
+    Ok(())
 }
