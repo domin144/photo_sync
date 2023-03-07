@@ -37,18 +37,12 @@ struct AnalyzedDirectory {
     map: BTreeMap<SizeAndName, Vec<PathBuf>>,
 }
 
-fn analyze_sub_directory(path: &Path, base_path: &Path) -> io::Result<AnalyzedDirectory> {
-    let mut result = AnalyzedDirectory {
-        map: BTreeMap::new(),
-    };
-
+fn analyze_sub_directory(path: &Path, base_path: &Path, result: &mut AnalyzedDirectory) -> io::Result<()> {
     for entry in path.read_dir()? {
         let entry = entry?;
         let path = &entry.path();
         if path.is_dir() {
-            let mut partial_result = analyze_sub_directory(path, base_path)?;
-            /* TODO: do not append! It overwrites existing entries. */
-            result.map.append(&mut partial_result.map);
+            analyze_sub_directory(path, base_path, result)?;
         } else if path.is_file() {
             let size = path.metadata()?.len();
             let name = path
@@ -69,12 +63,15 @@ fn analyze_sub_directory(path: &Path, base_path: &Path) -> io::Result<AnalyzedDi
             entry.push(relative_path.to_path_buf());
         }
     }
-
-    Ok(result)
+    Ok(())
 }
 
 fn analyze_directory(path: &Path) -> io::Result<AnalyzedDirectory> {
-    analyze_sub_directory(path, path)
+    let mut result = AnalyzedDirectory {
+        map: BTreeMap::new(),
+    };
+    analyze_sub_directory(path, path, &mut result)?;
+    Ok(result)
 }
 
 struct Move {
@@ -117,6 +114,7 @@ fn get_duplicates(analyzed_directory: &AnalyzedDirectory) -> Result<Vec<Vec<&Pat
 }
 
 fn display_duplicates(duplicates: &Vec<Vec<&Path>>) {
+    println!("duplicates:");
     for list in duplicates {
         println!("[");
         for item in list {
