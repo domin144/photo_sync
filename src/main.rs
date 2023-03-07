@@ -1,5 +1,5 @@
 use clap::Parser;
-use std::collections::BTreeMap;
+use std::collections::{btree_map, BTreeMap};
 use std::error::Error;
 use std::ffi::OsString;
 use std::io;
@@ -37,7 +37,7 @@ struct AnalyzedDirectory {
     map: BTreeMap<SizeAndName, Vec<PathBuf>>,
 }
 
-fn analyze_directory(path: &Path) -> io::Result<AnalyzedDirectory> {
+fn analyze_sub_directory(path: &Path, base_path: &Path) -> io::Result<AnalyzedDirectory> {
     let mut result = AnalyzedDirectory {
         map: BTreeMap::new(),
     };
@@ -46,7 +46,8 @@ fn analyze_directory(path: &Path) -> io::Result<AnalyzedDirectory> {
         let entry = entry?;
         let path = &entry.path();
         if path.is_dir() {
-            let mut partial_result = analyze_directory(path)?;
+            let mut partial_result = analyze_sub_directory(path, base_path)?;
+            /* TODO: do not append! It overwrites existing entries. */
             result.map.append(&mut partial_result.map);
         } else if path.is_file() {
             let size = path.metadata()?.len();
@@ -58,12 +59,22 @@ fn analyze_directory(path: &Path) -> io::Result<AnalyzedDirectory> {
                 ))?
                 .to_owned();
             let key = SizeAndName { size, name };
-            let entry = result.map.entry(key).or_insert(Vec::new());
-            entry.push(path.clone());
+            let entry: &mut Vec<PathBuf> = result.map.entry(key).or_insert(Vec::new());
+            let relative_path: &Path =
+                path.strip_prefix(base_path)
+                    .or(io::Result::Err(io::Error::new(
+                        io::ErrorKind::Other,
+                        "invalid prefix!",
+                    )))?;
+            entry.push(relative_path.to_path_buf());
         }
     }
 
     Ok(result)
+}
+
+fn analyze_directory(path: &Path) -> io::Result<AnalyzedDirectory> {
+    analyze_sub_directory(path, path)
 }
 
 struct Move {
@@ -76,7 +87,7 @@ struct RemoveDuplicate {
     original: PathBuf,
 }
 
-enum Operatrion {
+enum Operation {
     Move(Move),
     RemoveDuplicate(RemoveDuplicate),
     RemoveEmptyDirectory(PathBuf),
@@ -91,7 +102,47 @@ fn display_analyzed_directory(analyzed_directory: &AnalyzedDirectory) {
     }
 }
 
-// fn sync(sourceDir: &AnalyzedDirectory, targetDir: &AnalyzedDirectory) -> Result<(), String> {}
+fn get_duplicates(analyzed_directory: &AnalyzedDirectory) -> Result<Vec<Vec<&Path>>, String> {
+    let mut result = Vec::new();
+    for (_, value) in &analyzed_directory.map {
+        if value.len() > 1 {
+            let mut paths = Vec::new();
+            for path in value {
+                paths.push(path.as_path());
+            }
+            result.push(paths);
+        }
+    }
+    Ok(result)
+}
+
+fn display_duplicates(duplicates: &Vec<Vec<&Path>>) {
+    for list in duplicates {
+        println!("[");
+        for item in list {
+            println!("    {}", item.to_string_lossy());
+        }
+        println!("]");
+    }
+}
+
+// fn sync(
+//     source_directory: &AnalyzedDirectory,
+//     target_directory: &AnalyzedDirectory,
+// ) -> Result<Vec<Operation>, String> {
+//     for (key, value) in &target_directory.map {
+//         // let SizeAndName{size, name} = key;
+//         let source_entry = source_directory.map.get(&key);
+//         if let Some(paths) = source_entry {
+//             let source_path: Path = paths.get(0).ok_or("no path for source entry");
+//         }
+//         for path in value {
+//             println!("    path : {}", path.to_string_lossy());
+//         }
+//     }
+
+//     Err(String::from("TODO"))
+// }
 
 fn main2() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
@@ -100,7 +151,14 @@ fn main2() -> Result<(), Box<dyn Error>> {
         args.source_directory.to_string_lossy(),
         args.target_directory.to_string_lossy()
     );
+
     let analyzed_source = analyze_directory(&args.source_directory)?;
+    let duplicates_in_source = get_duplicates(&analyzed_source)?;
+    if !duplicates_in_source.is_empty() {
+        display_duplicates(&duplicates_in_source);
+        return Err("The source has duplicates".into());
+    }
+
     let analyzed_target = analyze_directory(&args.target_directory)?;
 
     println!("Analyzed source:");
