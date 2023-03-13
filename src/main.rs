@@ -1,5 +1,5 @@
 use clap::Parser;
-use std::collections::{btree_map, BTreeMap};
+use std::collections::BTreeMap;
 use std::error::Error;
 use std::ffi::OsString;
 use std::io;
@@ -37,7 +37,11 @@ struct AnalyzedDirectory {
     map: BTreeMap<SizeAndName, Vec<PathBuf>>,
 }
 
-fn analyze_sub_directory(path: &Path, base_path: &Path, result: &mut AnalyzedDirectory) -> io::Result<()> {
+fn analyze_sub_directory(
+    path: &Path,
+    base_path: &Path,
+    result: &mut AnalyzedDirectory,
+) -> io::Result<()> {
     for entry in path.read_dir()? {
         let entry = entry?;
         let path = &entry.path();
@@ -74,6 +78,10 @@ fn analyze_directory(path: &Path) -> io::Result<AnalyzedDirectory> {
     Ok(result)
 }
 
+struct Copy {
+    source: PathBuf,
+    target: PathBuf,
+}
 struct Move {
     source: PathBuf,
     target: PathBuf,
@@ -85,9 +93,9 @@ struct RemoveDuplicate {
 }
 
 enum Operation {
+    Copy(Copy),
     Move(Move),
     RemoveDuplicate(RemoveDuplicate),
-    RemoveEmptyDirectory(PathBuf),
 }
 
 fn display_analyzed_directory(analyzed_directory: &AnalyzedDirectory) {
@@ -124,23 +132,73 @@ fn display_duplicates(duplicates: &Vec<Vec<&Path>>) {
     }
 }
 
-// fn sync(
-//     source_directory: &AnalyzedDirectory,
-//     target_directory: &AnalyzedDirectory,
-// ) -> Result<Vec<Operation>, String> {
-//     for (key, value) in &target_directory.map {
-//         // let SizeAndName{size, name} = key;
-//         let source_entry = source_directory.map.get(&key);
-//         if let Some(paths) = source_entry {
-//             let source_path: Path = paths.get(0).ok_or("no path for source entry");
-//         }
-//         for path in value {
-//             println!("    path : {}", path.to_string_lossy());
-//         }
-//     }
+fn sync(
+    source_directory: &AnalyzedDirectory,
+    target_directory: &AnalyzedDirectory,
+) -> Result<Vec<Operation>, String> {
+    let mut result = Vec::new();
+    for (key, value) in &source_directory.map {
+        let source_path = value.first().ok_or("no path for source")?;
+        // let SizeAndName{size, name} = key;
+        let target_entry = target_directory.map.get(&key);
+        match target_entry {
+            Some(target_paths) => {
+                let mut chosen_target_path: &PathBuf = source_path;
+                if !target_paths.contains(&source_path) {
+                    chosen_target_path =
+                        target_paths.first().ok_or("empty list of target paths")?;
+                    result.push(Operation::Move(Move {
+                        source: chosen_target_path.clone(),
+                        target: source_path.clone(),
+                    }));
+                }
+                for target_path in target_paths.iter() {
+                    if target_path != chosen_target_path {
+                        result.push(Operation::RemoveDuplicate(RemoveDuplicate {
+                            duplicate: target_path.clone(),
+                            original: chosen_target_path.clone(),
+                        }));
+                    }
+                }
+            }
+            None => result.push(Operation::Copy(Copy {
+                source: source_path.clone(),
+                target: source_path.clone(),
+            })),
+        }
+    }
 
-//     Err(String::from("TODO"))
-// }
+    Ok(result)
+}
+
+fn print_operation(operation: &Operation) {
+    match operation {
+        Operation::Copy(Copy { source, target }) => {
+            println!(
+                "copy {} to {}",
+                source.to_string_lossy(),
+                target.to_string_lossy()
+            );
+        }
+        Operation::Move(Move { source, target }) => {
+            println!(
+                "move {} to {}",
+                source.to_string_lossy(),
+                target.to_string_lossy()
+            )
+        }
+        Operation::RemoveDuplicate(RemoveDuplicate {
+            duplicate,
+            original,
+        }) => {
+            println!(
+                "remove duplicate {} of {}",
+                duplicate.to_string_lossy(),
+                original.to_string_lossy()
+            )
+        }
+    }
+}
 
 fn main2() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
@@ -163,6 +221,12 @@ fn main2() -> Result<(), Box<dyn Error>> {
     display_analyzed_directory(&analyzed_source);
     println!("Analyzed target:");
     display_analyzed_directory(&analyzed_target);
+
+    let operations = sync(&analyzed_source, &analyzed_target)?;
+
+    for operation in operations.iter() {
+        print_operation(operation);
+    }
 
     Ok(())
 }
