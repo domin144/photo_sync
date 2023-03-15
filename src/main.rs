@@ -2,6 +2,7 @@ use clap::Parser;
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::ffi::OsString;
+use std::fs::create_dir_all;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -200,6 +201,88 @@ fn print_operation(operation: &Operation) {
     }
 }
 
+fn create_parent(full_target_path: &Path) -> Result<(), String> {
+    let full_target_directory: &Path = full_target_path.parent().ok_or(format!(
+        "Failed to get parent of path \"{}\".",
+        full_target_path.to_string_lossy()
+    ))?;
+    if !full_target_directory.exists() {
+        create_dir_all(full_target_directory).or(Err(format!(
+            "Failed to create directory \"{}\".",
+            full_target_directory.to_string_lossy()
+        )))?;
+    }
+    Ok(())
+}
+
+fn execute_copy(source: &Path, target: &Path, operation: &Copy) -> Result<(), String> {
+    let full_source_path: PathBuf = source.join(&operation.source);
+    let full_target_path: PathBuf = target.join(&operation.target);
+
+    if full_target_path.exists() {
+        return Err(format!(
+            "The target file \"{}\" already exists, copy would overwrite.",
+            full_target_path.to_string_lossy()
+        ));
+    }
+
+    create_parent(&full_target_path);
+
+    std::fs::copy(&full_source_path, &full_target_path).or(Err(format!(
+        "Copy from \"{}\" to \"{}\" failed.",
+        full_source_path.to_string_lossy(),
+        full_target_path.to_string_lossy()
+    )))?;
+
+    Ok(())
+}
+
+fn execute_move(target: &Path, operation: &Move) -> Result<(), String> {
+    let full_source_path: PathBuf = target.join(&operation.source);
+    let full_target_path: PathBuf = target.join(&operation.target);
+
+    if full_target_path.exists() {
+        return Err(format!(
+            "The target file \"{}\" already exists, move would overwrite.",
+            full_target_path.to_string_lossy()
+        ));
+    }
+
+    create_parent(&full_target_path)?;
+
+    std::fs::rename(&full_source_path, &full_target_path).or(Err(format!(
+        "Move from \"{}\" to \"{}\" failed.",
+        full_source_path.to_string_lossy(),
+        full_target_path.to_string_lossy()
+    )))
+}
+
+fn execute_remove_duplicate(target: &Path, operation: &RemoveDuplicate) -> Result<(), String> {
+    let full_target_path: PathBuf = target.join(&operation.duplicate);
+    std::fs::remove_file(&full_target_path).or(Err(format!(
+        "Failed to remove \"{}\".",
+        full_target_path.to_string_lossy()
+    )))
+}
+
+fn execute(source: &Path, target: &Path, script: &Vec<Operation>) -> Result<(), String> {
+    for operation in script.iter() {
+        match operation {
+            Operation::Copy(operation) => {
+                execute_copy(source, target, &operation)?;
+            }
+            Operation::Move(operation) => {
+                execute_move(target, &operation)?;
+            }
+            Operation::RemoveDuplicate(operation) => {
+                execute_remove_duplicate(target, &operation)?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
 fn main2() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
     println!(
@@ -207,6 +290,7 @@ fn main2() -> Result<(), Box<dyn Error>> {
         args.source_directory.to_string_lossy(),
         args.target_directory.to_string_lossy()
     );
+    println!("Dry run: {}", args.dry_run);
 
     let analyzed_source = analyze_directory(&args.source_directory)?;
     let duplicates_in_source = get_duplicates(&analyzed_source)?;
@@ -226,6 +310,10 @@ fn main2() -> Result<(), Box<dyn Error>> {
 
     for operation in operations.iter() {
         print_operation(operation);
+    }
+
+    if !args.dry_run {
+        execute(&args.source_directory, &args.target_directory, &operations)?;
     }
 
     Ok(())
