@@ -3,7 +3,6 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::ffi::OsString;
 use std::fs::create_dir_all;
-use std::io;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -42,36 +41,47 @@ fn analyze_sub_directory(
     path: &Path,
     base_path: &Path,
     result: &mut AnalyzedDirectory,
-) -> io::Result<()> {
-    for entry in path.read_dir()? {
-        let entry = entry?;
+) -> Result<(), String> {
+    for entry in path.read_dir().or(Err(format!(
+        "Failed to read dir {}",
+        path.to_string_lossy()
+    )))? {
+        let entry = entry.or(Err(format!(
+            "Faulty entry in dir {}",
+            path.to_string_lossy()
+        )))?;
         let path = &entry.path();
         if path.is_dir() {
             analyze_sub_directory(path, base_path, result)?;
         } else if path.is_file() {
-            let size = path.metadata()?.len();
+            let size = path
+                .metadata()
+                .or(Err(format!(
+                    "Could not get metadata for {}",
+                    path.to_string_lossy()
+                )))?
+                .len();
             let name = path
                 .file_name()
-                .ok_or(io::Error::new(
-                    io::ErrorKind::Other,
-                    "path did not end with a file name",
+                .ok_or(format!(
+                    "Path {} did not end with a file name.",
+                    path.to_string_lossy()
                 ))?
                 .to_owned();
             let key = SizeAndName { size, name };
             let entry: &mut Vec<PathBuf> = result.map.entry(key).or_insert(Vec::new());
-            let relative_path: &Path =
-                path.strip_prefix(base_path)
-                    .or(io::Result::Err(io::Error::new(
-                        io::ErrorKind::Other,
-                        "invalid prefix!",
-                    )))?;
+            let relative_path: &Path = path.strip_prefix(base_path).or(Err(format!(
+                "Prefix {} not in path {}.",
+                base_path.to_string_lossy(),
+                path.to_string_lossy()
+            )))?;
             entry.push(relative_path.to_path_buf());
         }
     }
     Ok(())
 }
 
-fn analyze_directory(path: &Path) -> io::Result<AnalyzedDirectory> {
+fn analyze_directory(path: &Path) -> Result<AnalyzedDirectory, String> {
     let mut result = AnalyzedDirectory {
         map: BTreeMap::new(),
     };
@@ -226,7 +236,7 @@ fn execute_copy(source: &Path, target: &Path, operation: &Copy) -> Result<(), St
         ));
     }
 
-    create_parent(&full_target_path);
+    create_parent(&full_target_path)?;
 
     std::fs::copy(&full_source_path, &full_target_path).or(Err(format!(
         "Copy from \"{}\" to \"{}\" failed.",
