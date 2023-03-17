@@ -275,8 +275,17 @@ fn execute_remove_duplicate(target: &Path, operation: &RemoveDuplicate) -> Resul
     )))
 }
 
-fn execute(source: &Path, target: &Path, script: &Vec<Operation>) -> Result<(), String> {
+fn execute(
+    source: &Path,
+    target: &Path,
+    script: &Vec<Operation>,
+    dry_run: bool,
+) -> Result<(), String> {
     for operation in script.iter() {
+        print_operation(operation);
+        if dry_run {
+            continue;
+        }
         match operation {
             Operation::Copy(operation) => {
                 execute_copy(source, target, &operation)?;
@@ -318,13 +327,12 @@ fn main2() -> Result<(), Box<dyn Error>> {
 
     let operations = sync(&analyzed_source, &analyzed_target)?;
 
-    for operation in operations.iter() {
-        print_operation(operation);
-    }
-
-    if !args.dry_run {
-        execute(&args.source_directory, &args.target_directory, &operations)?;
-    }
+    execute(
+        &args.source_directory,
+        &args.target_directory,
+        &operations,
+        args.dry_run,
+    )?;
 
     Ok(())
 }
